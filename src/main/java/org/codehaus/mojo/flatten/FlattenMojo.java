@@ -52,6 +52,7 @@ import org.apache.maven.model.building.ModelBuildingRequest;
 import org.apache.maven.model.building.ModelBuildingResult;
 import org.apache.maven.model.building.ModelProblemCollector;
 import org.apache.maven.model.interpolation.ModelInterpolator;
+import org.apache.maven.model.interpolation.StringSearchModelInterpolator;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.apache.maven.model.profile.ProfileActivationContext;
 import org.apache.maven.model.profile.ProfileInjector;
@@ -446,8 +447,17 @@ public class FlattenMojo
     {
         LoggingModelProblemCollector problems = new LoggingModelProblemCollector( getLog() );
         Model originalModel = this.project.getOriginalModel().clone();
-        return this.modelInterpolator.interpolateModel( originalModel, this.project.getModel().getProjectDirectory(),
-                                                        buildingRequest, problems );
+
+        Model interpolatedModel = this.modelInterpolator.interpolateModel( originalModel,
+                this.project.getModel().getProjectDirectory(), buildingRequest, problems );
+
+        // interpolate parent explicitly
+        if ( interpolatedModel.getParent() != null ) {
+            CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator();
+            customInterpolator.interpolateObject(interpolatedModel.getParent(), project.getModel(), 
+                    this.project.getModel().getProjectDirectory(), buildingRequest, problems );
+        }
+        return interpolatedModel;
     }
 
     /**
@@ -915,4 +925,19 @@ public class FlattenMojo
         }
     }
 
+    /**
+	 * We need a subclass to make
+	 * {@link CustomStringSearchModelInterpolator#interpolateObject(Object, Model, File, ModelBuildingRequest, ModelProblemCollector)}
+	 * accessible
+	 */
+    static class CustomStringSearchModelInterpolator extends StringSearchModelInterpolator {
+        /**
+         * Overwritten to be public
+         */
+        @Override
+        public void interpolateObject(Object aObj, Model aModel, File aProjectDir, ModelBuildingRequest aConfig,
+                ModelProblemCollector aProblems) {
+            super.interpolateObject(aObj, aModel, aProjectDir, aConfig, aProblems);
+        }
+    }
 }
