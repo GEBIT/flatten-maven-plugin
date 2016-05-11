@@ -42,7 +42,12 @@ public class FlattenDescriptor
             String element = property.getName();
             if ( descriptor.getChild( element ) != null )
             {
-                this.name2handlingMap.put( element, ElementHandling.expand );
+            	Xpp3Dom child = descriptor.getChild( element );
+                if ( child.getValue() == null || child.getValue().isEmpty() ) {
+                    this.name2handlingMap.put( element, ElementHandling.expand );
+                } else {
+                    this.name2handlingMap.put( element, ElementHandling.valueOf( child.getValue() ) );
+                }
             }
         }
     }
