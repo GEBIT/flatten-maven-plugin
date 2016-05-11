@@ -70,7 +70,7 @@ public class CreateEffectivePomTest
         setDeclaredField( artifactFactory, "artifactHandlerManager", artifactHandlerManager );
         Map<String, ArtifactHandler> artifactHandlers = new HashMap<String, ArtifactHandler>();
         setDeclaredField( artifactHandlerManager, "artifactHandlers", artifactHandlers );
-        FlattenModelResolver resolver = new FlattenModelResolver( localRepository, artifactFactory );
+        FlattenModelResolver resolver = new FlattenModelResolver( localRepository, artifactFactory, null );
         ModelBuildingRequest buildingRequest =
             new DefaultModelBuildingRequest().setPomFile( pomFile ).setModelResolver( resolver ).setUserProperties( userProperties );
         Model effectivePom = FlattenMojo.createEffectivePom( buildingRequest, false );
