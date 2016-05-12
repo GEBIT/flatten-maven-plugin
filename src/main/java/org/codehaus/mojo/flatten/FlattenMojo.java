@@ -415,7 +415,7 @@ public class FlattenMojo
         FlattenDescriptor descriptor = getFlattenDescriptor();
         Model originalPom = this.project.getOriginalModel();
         Model resolvedPom = this.project.getModel();
-        Model interpolatedPom = createResolvedPom( buildingRequest );
+        Model interpolatedPom = createResolvedPom( buildingRequest, effectivePom );
 
         // copy the configured additional POM elements...
 
@@ -443,18 +443,17 @@ public class FlattenMojo
         return flattenedPom;
     }
 
-    private Model createResolvedPom( ModelBuildingRequest buildingRequest )
+    private Model createResolvedPom( ModelBuildingRequest buildingRequest, Model effectiveModel )
     {
         LoggingModelProblemCollector problems = new LoggingModelProblemCollector( getLog() );
-        Model originalModel = this.project.getOriginalModel().clone();
-
-        Model interpolatedModel = this.modelInterpolator.interpolateModel( originalModel,
+        Model interpolatedModel = this.project.getOriginalModel().clone();
+        CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator();
+        customInterpolator.interpolateObject( interpolatedModel, effectiveModel,
                 this.project.getModel().getProjectDirectory(), buildingRequest, problems );
 
         // interpolate parent explicitly
         if ( interpolatedModel.getParent() != null ) {
-            CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator();
-            customInterpolator.interpolateObject(interpolatedModel.getParent(), project.getModel(), 
+            customInterpolator.interpolateObject(interpolatedModel.getParent(), effectiveModel, 
                     this.project.getModel().getProjectDirectory(), buildingRequest, problems );
         }
         return interpolatedModel;
