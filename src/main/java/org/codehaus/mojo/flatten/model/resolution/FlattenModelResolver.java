@@ -23,13 +23,11 @@ import java.io.File;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.artifact.repository.ArtifactRepository;
-import org.apache.maven.execution.MavenSession;
 import org.apache.maven.model.Parent;
 import org.apache.maven.model.Repository;
 import org.apache.maven.model.building.FileModelSource;
 import org.apache.maven.model.building.ModelSource;
 import org.apache.maven.model.resolution.ModelResolver;
-import org.apache.maven.project.MavenProject;
 
 /**
  * This is a custom implementation of {@link ModelResolver} to emulate the maven POM resolution in order to build the
@@ -49,21 +47,17 @@ public class FlattenModelResolver
     /** The factory used to create project artifact instances. */
     private ArtifactFactory artifactFactory;
 
-    /** The session used to access project models */
-    private MavenSession session;
-
     /**
      * The constructor.
      *
      * @param localRepository is the local repository.
      * @param artifactFactory is the factory used to create project artifact instances.
      */
-    public FlattenModelResolver( ArtifactRepository localRepository, ArtifactFactory artifactFactory, MavenSession session )
+    public FlattenModelResolver( ArtifactRepository localRepository, ArtifactFactory artifactFactory )
     {
 
         this.localRepository = localRepository;
         this.artifactFactory = artifactFactory;
-        this.session = session;
     }
 
     /**
@@ -71,18 +65,11 @@ public class FlattenModelResolver
      */
     public ModelSource resolveModel( String groupId, String artifactId, String version )
     {
+
         Artifact pomArtifact = this.artifactFactory.createProjectArtifact( groupId, artifactId, version );
         pomArtifact = this.localRepository.find( pomArtifact );
 
         File pomFile = pomArtifact.getFile();
-        if ( this.session != null ) {
-            for ( MavenProject project : this.session.getProjects() ) {
-                 if ( project.getArtifact().equals( pomArtifact ) ) {
-                     pomFile = project.getOriginalModel().getPomFile();
-                     break;
-                 }
-            }
-        }
 
         return new FileModelSource( pomFile );
     }
@@ -101,7 +88,7 @@ public class FlattenModelResolver
      */
     public ModelResolver newCopy()
     {
-        return new FlattenModelResolver( this.localRepository, this.artifactFactory, this.session );
+        return new FlattenModelResolver( this.localRepository, this.artifactFactory );
     }
 
     /**
