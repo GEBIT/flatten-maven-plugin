@@ -54,6 +54,8 @@ import org.apache.maven.model.building.ModelProblemCollector;
 import org.apache.maven.model.interpolation.ModelInterpolator;
 import org.apache.maven.model.interpolation.StringSearchModelInterpolator;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
+import org.apache.maven.model.path.PathTranslator;
+import org.apache.maven.model.path.UrlNormalizer;
 import org.apache.maven.model.profile.ProfileActivationContext;
 import org.apache.maven.model.profile.ProfileInjector;
 import org.apache.maven.model.profile.ProfileSelector;
@@ -66,6 +68,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.codehaus.mojo.flatten.model.resolution.FlattenModelResolver;
+import org.codehaus.plexus.component.annotations.Requirement;
 import org.codehaus.plexus.util.IOUtil;
 import org.codehaus.plexus.util.StringUtils;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
@@ -244,6 +247,14 @@ public class FlattenMojo
     /** The {@link MavenSession} used to get user properties. */
     @Component
     private MavenSession session;
+
+    /** The {@link PathTranslator} needed for the custom interpolator */
+    @Component
+    private PathTranslator pathTranslator;
+
+    /** The {@link UrlNormalizer} needed for the custom interpolator */
+    @Component
+    private UrlNormalizer urlNormalizer;
 
     /**
      * The constructor.
@@ -448,6 +459,8 @@ public class FlattenMojo
         LoggingModelProblemCollector problems = new LoggingModelProblemCollector( getLog() );
         Model interpolatedModel = this.project.getOriginalModel().clone();
         CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator();
+        customInterpolator.setPathTranslator( pathTranslator );
+        customInterpolator.setUrlNormalizer( urlNormalizer );
         customInterpolator.interpolateObject( interpolatedModel, effectiveModel,
                 this.project.getModel().getProjectDirectory(), buildingRequest, problems );
 
