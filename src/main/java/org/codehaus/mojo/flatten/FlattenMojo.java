@@ -65,6 +65,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.codehaus.mojo.flatten.model.resolution.FlattenModelResolver;
+import org.codehaus.mojo.flatten.model.resolution.NotDefaultModelCache;
 import org.codehaus.plexus.util.IOUtil;
 import org.codehaus.plexus.util.StringUtils;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
@@ -636,7 +637,8 @@ public class FlattenMojo
         Properties userProperties = this.session.getUserProperties();
 
         ModelBuildingRequest buildingRequest =
-            new DefaultModelBuildingRequest().setUserProperties( userProperties ).setSystemProperties( System.getProperties() ).setPomFile( pomFile ).setModelResolver( resolver );
+            new DefaultModelBuildingRequest().setUserProperties( userProperties ).setSystemProperties( System.getProperties() )
+                .setPomFile( pomFile ).setModelResolver( resolver ).setModelCache( new NotDefaultModelCache(session.getRepositorySession() ) );
         return buildingRequest;
     }
 
