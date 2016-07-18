@@ -79,7 +79,6 @@ public class NotDefaultModelCache
             int h = 17;
             h = h * 31 + this.groupId.hashCode();
             h = h * 31 + this.artifactId.hashCode();
-            h = h * 31 + this.version.hashCode();
             h = h * 31 + this.tag.hashCode();
             hash = h;
         }
@@ -106,7 +105,7 @@ public class NotDefaultModelCache
                     }
                     return artifactId.equals( keyAdapter.getArtifactId( obj ) ) 
                             && groupId.equals( keyAdapter.getGroupId( obj ) )
-                            && version.equals( keyAdapter.getVersion( obj ) ) 
+                            && equalsVersion( version, keyAdapter.getVersion( obj ) ) 
                             && tag.equals( keyAdapter.getTag( obj ) );
                 } catch (Exception exc) {
                     // then it obviously is not possible
@@ -117,7 +116,8 @@ public class NotDefaultModelCache
 
             Key that = (Key) obj;
             return artifactId.equals( that.artifactId ) && groupId.equals( that.groupId )
-                && version.equals( that.version ) && tag.equals( that.tag );
+                && equalsVersion( version, that.version )
+                && tag.equals( that.tag );
         }
 
         @Override
@@ -126,6 +126,22 @@ public class NotDefaultModelCache
             return hash;
         }
 
+        private boolean equalsVersion( String v1, String v2 ) {
+            if ( v1.equals( v2 ) ) {
+                return true;
+            }
+            int i1 = v1.indexOf( '$' );
+            int i2 = v2.indexOf( '$' );
+            if ( i1 >= 0 && i2 >= 0) {
+                return v2.substring( 0, i2 ).equals( v1.substring( 0, i1 ) );
+            } else if ( i1 >= 0 ) {
+                return v2.startsWith( v1.substring( 0, i1 ) );
+            } else if ( i2 >= 0 ) {
+                return v1.startsWith( v2.substring( 0, i2 ) );
+            } else {
+                return false;
+            }
+        }
     }
     static class KeyAdapter {
         private Field groupIdField;
