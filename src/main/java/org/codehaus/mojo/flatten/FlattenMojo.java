@@ -231,6 +231,12 @@ public class FlattenMojo
     @Parameter( required = false )
     private FlattenDescriptor pomElements;
 
+    /**
+     * Names of properties to keep regardless of the element handling
+     */
+    @Parameter( required = false )
+    private String[] keepProperties;
+
     /** The {@link FlattenMode} */
     @Parameter( required = false )
     private FlattenMode flattenMode;
@@ -447,6 +453,17 @@ public class FlattenMojo
                 else
                 {
                     property.copy( sourceModel, flattenedPom );
+                    if ( PomProperty.PROPERTIES == property && keepProperties != null) {
+                        for ( String keepProperty : keepProperties ) {
+                            String value = originalPom.getProperties().getProperty( keepProperty );
+                            if ( value != null ) {
+                                getLog().debug("Keeping property " + keepProperty + " with original value " + value);
+                                flattenedPom.getProperties().setProperty( keepProperty , value );
+                            } else {
+                                getLog().debug("Property " + keepProperty + " is not set in original model");
+                            }
+                        }
+                    }
                 }
             }
         }
