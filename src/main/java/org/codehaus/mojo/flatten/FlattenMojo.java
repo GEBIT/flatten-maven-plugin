@@ -26,9 +26,13 @@ import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Properties;
+import java.util.Set;
 
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
@@ -69,6 +73,9 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.codehaus.mojo.flatten.model.resolution.FlattenModelResolver;
 import org.codehaus.mojo.flatten.model.resolution.NotDefaultModelCache;
+import org.codehaus.plexus.interpolation.AbstractDelegatingValueSource;
+import org.codehaus.plexus.interpolation.InterpolationPostProcessor;
+import org.codehaus.plexus.interpolation.ValueSource;
 import org.codehaus.plexus.util.IOUtil;
 import org.codehaus.plexus.util.StringUtils;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
@@ -233,9 +240,17 @@ public class FlattenMojo
 
     /**
      * Names of properties to keep regardless of the element handling
+     * @since 1.0.0-gebit8
      */
     @Parameter( required = false )
     private String[] keepProperties;
+    
+    /**
+     * Names of properties to not interpolate (replace in other expressions)
+     * @since 1.0.0-gebit9
+     */
+    @Parameter( required = false )
+    private String[] dontInterpolateProperties;
 
     /** The {@link FlattenMode} */
     @Parameter( required = false )
@@ -475,7 +490,7 @@ public class FlattenMojo
     {
         LoggingModelProblemCollector problems = new LoggingModelProblemCollector( getLog() );
         Model interpolatedModel = this.project.getOriginalModel().clone();
-        CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator();
+        CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator(dontInterpolateProperties);
         customInterpolator.setPathTranslator( pathTranslator );
         customInterpolator.setUrlNormalizer( urlNormalizer );
         customInterpolator.interpolateObject( interpolatedModel, effectiveModel,
@@ -967,13 +982,36 @@ public class FlattenMojo
 	 * accessible
 	 */
     static class CustomStringSearchModelInterpolator extends StringSearchModelInterpolator {
+    	
+    	Set<String> suppressInterpolationFor = new HashSet<String>();
+    	
+    	CustomStringSearchModelInterpolator(String[] dontInterpolateProperties) {
+    		if (dontInterpolateProperties != null) {
+    			this.suppressInterpolationFor.addAll(Arrays.asList(dontInterpolateProperties));
+    		}
+    	}
+
         /**
          * Overwritten to be public
          */
         @Override
-        public void interpolateObject(Object aObj, Model aModel, File aProjectDir, ModelBuildingRequest aConfig,
-                ModelProblemCollector aProblems) {
-            super.interpolateObject(aObj, aModel, aProjectDir, aConfig, aProblems);
+        public void interpolateObject(Object obj, Model model, File projectDir, ModelBuildingRequest config,
+                ModelProblemCollector problems) {
+            super.interpolateObject(obj, model, projectDir, config, problems);
+        }
+        
+        /**
+         * We can only suppress interpolation if the property is the whole value.
+         */
+        @Override
+        protected String interpolateInternal(String src, List<? extends ValueSource> valueSources,
+        		List<? extends InterpolationPostProcessor> postProcessors, ModelProblemCollector problems) {
+        	if (src.startsWith("${") && src.endsWith("}")) {
+        		if (suppressInterpolationFor.contains(src.substring(2, src.length()-1))) {
+        			return src;
+        		}
+        	}
+        	return super.interpolateInternal(src, valueSources, postProcessors, problems);
         }
     }
 }
