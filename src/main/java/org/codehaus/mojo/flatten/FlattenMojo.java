@@ -25,6 +25,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -303,7 +304,18 @@ public class FlattenMojo
 
         if ( isUpdatePomFile() )
         {
+        	File basedir = this.project.getBasedir();
             this.project.setFile( flattenedPomFile );
+            
+            // reset the basedir, we can only do this using reflection
+            Field basedirField;
+            try {
+                basedirField = MavenProject.class.getDeclaredField( "basedir" );
+                basedirField.setAccessible( true );
+                basedirField.set( this.project, basedir );
+            } catch ( Exception e ) {
+                throw new MojoExecutionException( "Failed to restore basedir" , e );
+            }
         }
     }
 
@@ -353,7 +365,7 @@ public class FlattenMojo
             boolean success = parentFile.mkdirs();
             if ( !success )
             {
-                throw new MojoExecutionException( "Failed to create directory " + pomFile.getParent() );
+                throw new MojoExecutionException( "Failed to create directory " + parentFile );
             }
         }
         // MavenXpp3Writer could internally add the comment but does not expose such feature to API!
