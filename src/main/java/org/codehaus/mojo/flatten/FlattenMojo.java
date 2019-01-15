@@ -245,7 +245,7 @@ public class FlattenMojo
      */
     @Parameter( required = false )
     private String[] keepProperties;
-    
+
     /**
      * Names of properties to not interpolate (replace in other expressions)
      * @since 1.0.0-gebit9
@@ -286,13 +286,15 @@ public class FlattenMojo
         super();
     }
 
+    private static final Object lock = new Object();
+
     /**
      * {@inheritDoc}
      */
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
-
+      synchronized (lock) {
         getLog().info( "Generating flattened POM of project " + this.project.getId() + "..." );
 
         File originalPomFile = this.project.getFile();
@@ -306,7 +308,7 @@ public class FlattenMojo
         {
         	File basedir = this.project.getBasedir();
             this.project.setFile( flattenedPomFile );
-            
+
             // reset the basedir, we can only do this using reflection
             Field basedirField;
             try {
@@ -317,6 +319,7 @@ public class FlattenMojo
                 throw new MojoExecutionException( "Failed to restore basedir" , e );
             }
         }
+      }
     }
 
     /**
@@ -510,7 +513,7 @@ public class FlattenMojo
 
         // interpolate parent explicitly
         if ( interpolatedModel.getParent() != null ) {
-            customInterpolator.interpolateObject(interpolatedModel.getParent(), effectiveModel, 
+            customInterpolator.interpolateObject(interpolatedModel.getParent(), effectiveModel,
                     this.project.getModel().getProjectDirectory(), buildingRequest, problems );
         }
         return interpolatedModel;
@@ -994,9 +997,9 @@ public class FlattenMojo
 	 * accessible
 	 */
     static class CustomStringSearchModelInterpolator extends StringSearchModelInterpolator {
-    	
+
     	Set<String> suppressInterpolationFor = new HashSet<String>();
-    	
+
     	CustomStringSearchModelInterpolator(String[] dontInterpolateProperties) {
     		if (dontInterpolateProperties != null) {
     			this.suppressInterpolationFor.addAll(Arrays.asList(dontInterpolateProperties));
@@ -1011,7 +1014,7 @@ public class FlattenMojo
                 ModelProblemCollector problems) {
             super.interpolateObject(obj, model, projectDir, config, problems);
         }
-        
+
         /**
          * We can only suppress interpolation if the property is the whole value.
          */
