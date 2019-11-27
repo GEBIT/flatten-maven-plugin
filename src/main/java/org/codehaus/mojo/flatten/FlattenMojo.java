@@ -26,12 +26,16 @@ import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Properties;
 import java.util.Set;
 
@@ -74,8 +78,6 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.codehaus.mojo.flatten.model.resolution.FlattenModelResolver;
 import org.codehaus.mojo.flatten.model.resolution.NotDefaultModelCache;
-import org.codehaus.plexus.interpolation.AbstractDelegatingValueSource;
-import org.codehaus.plexus.interpolation.InterpolationPostProcessor;
 import org.codehaus.plexus.interpolation.ValueSource;
 import org.codehaus.plexus.util.IOUtil;
 import org.codehaus.plexus.util.StringUtils;
@@ -245,13 +247,20 @@ public class FlattenMojo
      */
     @Parameter( required = false )
     private String[] keepProperties;
-
+    
     /**
      * Names of properties to not interpolate (replace in other expressions)
      * @since 1.0.0-gebit9
      */
     @Parameter( required = false )
     private String[] dontInterpolateProperties;
+    
+    /**
+     * Names of properties to interpolate (replace in other expressions). Will ignore all properties not on this list
+     * @since 1.0.0-gebit10
+     */
+    @Parameter( required = false )
+    private String[] interpolateProperties;
 
     /** The {@link FlattenMode} */
     @Parameter( required = false )
@@ -278,6 +287,8 @@ public class FlattenMojo
     @Component
     private UrlNormalizer urlNormalizer;
 
+    private static final Object lock = new Object();
+
     /**
      * The constructor.
      */
@@ -286,40 +297,38 @@ public class FlattenMojo
         super();
     }
 
-    private static final Object lock = new Object();
-
     /**
      * {@inheritDoc}
      */
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
-      synchronized (lock) {
-        getLog().info( "Generating flattened POM of project " + this.project.getId() + "..." );
+        synchronized (lock) {
+            getLog().info( "Generating flattened POM of project " + this.project.getId() + "..." );
 
-        File originalPomFile = this.project.getFile();
-        Model flattenedPom = createFlattenedPom( originalPomFile );
-        String headerComment = extractHeaderComment( originalPomFile );
+            File originalPomFile = this.project.getFile();
+            Model flattenedPom = createFlattenedPom( originalPomFile );
+            String headerComment = extractHeaderComment( originalPomFile );
 
-        File flattenedPomFile = getFlattenedPomFile();
-        writePom( flattenedPom, flattenedPomFile, headerComment );
+            File flattenedPomFile = getFlattenedPomFile();
+            writePom( flattenedPom, flattenedPomFile, headerComment );
 
-        if ( isUpdatePomFile() )
-        {
-        	File basedir = this.project.getBasedir();
-            this.project.setFile( flattenedPomFile );
+            if ( isUpdatePomFile() )
+            {
+                File basedir = this.project.getBasedir();
+                this.project.setFile( flattenedPomFile );
 
-            // reset the basedir, we can only do this using reflection
-            Field basedirField;
-            try {
-                basedirField = MavenProject.class.getDeclaredField( "basedir" );
-                basedirField.setAccessible( true );
-                basedirField.set( this.project, basedir );
-            } catch ( Exception e ) {
-                throw new MojoExecutionException( "Failed to restore basedir" , e );
+                // reset the basedir, we can only do this using reflection
+                Field basedirField;
+                try {
+                    basedirField = MavenProject.class.getDeclaredField( "basedir" );
+                    basedirField.setAccessible( true );
+                    basedirField.set( this.project, basedir );
+                } catch ( Exception e ) {
+                    throw new MojoExecutionException( "Failed to restore basedir" , e );
+                }
             }
         }
-      }
     }
 
     /**
@@ -501,20 +510,22 @@ public class FlattenMojo
         return flattenedPom;
     }
 
-    private Model createResolvedPom( ModelBuildingRequest buildingRequest, Model effectiveModel )
+    private Model createResolvedPom( ModelBuildingRequest buildingRequest, Model effectiveModel ) throws MojoFailureException
     {
         LoggingModelProblemCollector problems = new LoggingModelProblemCollector( getLog() );
         Model interpolatedModel = this.project.getOriginalModel().clone();
-        CustomStringSearchModelInterpolator customInterpolator = new CustomStringSearchModelInterpolator(dontInterpolateProperties);
+        FlattenStringSearchModelInterpolator customInterpolator = new FlattenStringSearchModelInterpolator(interpolateProperties, dontInterpolateProperties, effectiveModel);
         customInterpolator.setPathTranslator( pathTranslator );
         customInterpolator.setUrlNormalizer( urlNormalizer );
-        customInterpolator.interpolateObject( interpolatedModel, effectiveModel,
+        customInterpolator.interpolateModel( interpolatedModel,
                 this.project.getModel().getProjectDirectory(), buildingRequest, problems );
 
         // interpolate parent explicitly
         if ( interpolatedModel.getParent() != null ) {
-            customInterpolator.interpolateObject(interpolatedModel.getParent(), effectiveModel,
-                    this.project.getModel().getProjectDirectory(), buildingRequest, problems );
+            FlattenDescriptor descriptor = getFlattenDescriptor();
+            if (descriptor.getParent() == ElementHandling.interpolate) {
+                interpolatedModel.getParent().setVersion( effectiveModel.getParent().getVersion() );
+            }
         }
         return interpolatedModel;
     }
@@ -992,41 +1003,126 @@ public class FlattenMojo
     }
 
     /**
-	 * We need a subclass to make
-	 * {@link CustomStringSearchModelInterpolator#interpolateObject(Object, Model, File, ModelBuildingRequest, ModelProblemCollector)}
-	 * accessible
-	 */
-    static class CustomStringSearchModelInterpolator extends StringSearchModelInterpolator {
+     * We need a subclass to make
+     * {@link CustomStringSearchModelInterpolator#interpolateObject(Object, Model, File, ModelBuildingRequest, ModelProblemCollector)}
+     * accessible
+     */
+    class FlattenStringSearchModelInterpolator extends StringSearchModelInterpolator {
+        Set<String> interpolationOnly = new HashSet<String>();
+        Set<String> suppressInterpolationFor = new HashSet<String>();
+        Model effectiveModel;
+        Class valueSourceClass;
 
-    	Set<String> suppressInterpolationFor = new HashSet<String>();
-
-    	CustomStringSearchModelInterpolator(String[] dontInterpolateProperties) {
-    		if (dontInterpolateProperties != null) {
-    			this.suppressInterpolationFor.addAll(Arrays.asList(dontInterpolateProperties));
-    		}
-    	}
-
-        /**
-         * Overwritten to be public
-         */
-        @Override
-        public void interpolateObject(Object obj, Model model, File projectDir, ModelBuildingRequest config,
-                ModelProblemCollector problems) {
-            super.interpolateObject(obj, model, projectDir, config, problems);
+        FlattenStringSearchModelInterpolator(String[] interpolateOnlyProperties, String[] dontInterpolateProperties, Model effectiveModel) {
+            this.effectiveModel = effectiveModel;
+            if (interpolateOnlyProperties != null) {
+                this.interpolationOnly.addAll(Arrays.asList(interpolateOnlyProperties));
+            }
+            if (dontInterpolateProperties != null) {
+                this.suppressInterpolationFor.addAll(Arrays.asList(dontInterpolateProperties));
+            }
+            try {
+                valueSourceClass = StringSearchModelInterpolator.class.getClassLoader().loadClass(ValueSource.class.getName());
+            } catch (ClassNotFoundException exc) {
+                getLog().error("Cannot obtain ValueSource class", exc);
+            }
         }
 
-        /**
-         * We can only suppress interpolation if the property is the whole value.
-         */
         @Override
-        protected String interpolateInternal(String src, List<? extends ValueSource> valueSources,
-        		List<? extends InterpolationPostProcessor> postProcessors, ModelProblemCollector problems) {
-        	if (src.startsWith("${") && src.endsWith("}")) {
-        		if (suppressInterpolationFor.contains(src.substring(2, src.length()-1))) {
-        			return src;
-        		}
-        	}
-        	return super.interpolateInternal(src, valueSources, postProcessors, problems);
+        protected List createValueSources(Model model, File projectDir, ModelBuildingRequest config,
+                ModelProblemCollector problems) {
+
+            // As we'll get another ValueSource class loaded we need to translate via a proxy and reflection
+            final CompoundValueSource valueSource = new CompoundValueSource(interpolationOnly,
+                  suppressInterpolationFor,
+                  super.createValueSources(effectiveModel, projectDir, config, problems), valueSourceClass);
+            try {
+                Object p = Proxy.newProxyInstance(valueSourceClass.getClassLoader(),
+                        new Class[] {valueSourceClass},
+                        new InvocationHandler() {
+                            @Override
+                            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                                if ("getValue".equals(method.getName())) {
+                                    return valueSource.getValue((String) args[0]);
+                                }
+                                if ("equals".equals(method.getName())) {
+                                    return proxy == args[0];
+                                }
+                                if ("hashCode".equals(method.getName())) {
+                                    return 0;
+                                }
+                                return null;
+                            }
+                        }
+                );
+                return Collections.singletonList(p);
+            } catch (IllegalArgumentException exc) {
+                getLog().error("Failed to create ValueSources proxy instance", exc);
+                return Collections.emptyList();
+            }
+        }
+    }
+
+    class CompoundValueSource implements ValueSource {
+        Set<String> interpolationOnly;
+        Set<String> suppressInterpolationFor;
+        List<ValueSource> delegates;
+        Method valueSourceGetValue;
+
+        protected CompoundValueSource(Set<String> interpolationOnly, Set<String> suppressInterpolationFor, List<ValueSource> delegate, Class valueSourceClass) {
+            this.interpolationOnly = interpolationOnly;
+            this.suppressInterpolationFor = suppressInterpolationFor;
+            this.delegates = delegate;
+            try {
+                this.valueSourceGetValue = valueSourceClass.getMethod("getValue", String.class);
+            } catch (NoSuchMethodException | SecurityException exc) {
+                getLog().error("Failed to obtain ValueSource.getValue(String)", exc);
+            }
+        }
+
+        @Override
+        public void clearFeedback() {}
+
+        @Override
+        public List getFeedback() {
+            return null;
+        }
+
+        @Override
+        public Object getValue(String expression) {
+            if (!interpolationOnly.isEmpty() && interpolationOnly.contains(expression)) {
+                // don't modify
+                return null;
+            }
+            if (suppressInterpolationFor.contains(expression)) {
+                return null;
+            }
+
+            Object value = null;
+            Object bestAnswer = null;
+
+            for ( Object valueSource : delegates )
+            {
+                if ( value != null )
+                {
+                    break;
+                }
+                
+                try {
+                    value = valueSourceGetValue.invoke(valueSource, expression);
+                } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException
+                        | SecurityException exc) {
+                    getLog().error("failed to invoke ValueSource.getValue()", exc);
+                }
+
+                if ( value != null && value.toString().contains( expression ) )
+                {
+                    bestAnswer = value;
+                    value = null;
+                }
+            }
+
+            return value != null ? value : bestAnswer;
         }
     }
 }
